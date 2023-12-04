@@ -156,11 +156,11 @@ def imretype(im, dtype):
     im = np.array(im)
 
     if im.dtype in ['float', 'float16', 'float32', 'float64']:
-        im = im.astype(np.float)
+        im = im.astype(float)
     elif im.dtype == 'uint8':
-        im = im.astype(np.float) / 255.
+        im = im.astype(float) / 255.
     elif im.dtype == 'uint16':
-        im = im.astype(np.float) / 65535.
+        im = im.astype(float) / 65535.
     else:
         raise NotImplementedError('unsupported source dtype: {0}'.format(im.dtype))
 
@@ -363,7 +363,7 @@ def mask_visualization(mask):
 
     mask_list = []
     for k in range(K - 1):
-        mask_list.append((argmax_mask == k).astype(np.float32))
+        mask_list.append((argmax_mask == k).astype(float32))
 
     mask = np.sum(np.stack(mask_list, axis=1), axis=4)
     sum_mask = np.sum(mask, 1) + 1  # [B, 1, W, H]
@@ -385,7 +385,7 @@ def mask_visualization_2d(mask):
         argmax_mask = mask
     mask_list = []
     for k in range(K):
-        mask_list.append((argmax_mask == k).astype(np.float32))
+        mask_list.append((argmax_mask == k).astype(float32))
 
     mask = np.stack(mask_list, axis=1)
     sum_mask = np.sum(mask, 1) + 1  # [B, 1, W, H]
@@ -405,4 +405,4 @@ def volume_visualization(volume):
 
 def tsdf_visualization(tsdf):
     # tsdf: numpy array: [B, W, H, D]
-    return volume_visualization((tsdf < 0).astype(np.float32))
+    return volume_visualization((tsdf < 0).astype(float32))

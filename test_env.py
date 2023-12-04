@@ -9,7 +9,6 @@ from sim import PybulletSim
 from binvox_utils import read_as_coord_array
 from utils import euler2rotm, project_pts_to_2d
 import pdb
-from test_env import SimulationEnv as test_sim
 
 class SimulationEnv():
     def __init__(self, gui_enabled):
@@ -19,9 +18,9 @@ class SimulationEnv():
         self.heightmap_size = self.sim._heightmap_size
         self.heightmap_pixel_size = self.sim._heightmap_pixel_size
         self.view_bounds = self.sim._view_bounds
-        self.physicsClientId = self.sim.get_physics_client_id()
         self.direction_num = 8
         self.voxel_size = 0.004
+        self.physicsClientId = self.sim.get_physics_client_id()
 
         self.object_ids = []
 
@@ -39,7 +38,7 @@ class SimulationEnv():
         self.cnt_dict = {}
         self.init_position = {}
         self.last_direction = {}
-        self.put_pq = {}
+        self.init_pq = {}
 
 
     def _get_coord(self, obj_id, position, orientation, vol_bnds=None, voxel_size=None):
@@ -64,9 +63,50 @@ class SimulationEnv():
         return positions, orientations
 
     #TODO:
-    #Guofei: get the objectcollision info
-    def get_object_collision_data(self, object_id):
-        return p.getCollisionShapeData(object_id, -1, physicsClientId=self.physicsClientId)
+    #Guofei: get the new coordinates and orientation of the obkects
+    def create_object_by_pose_collision(self, obj_p, obj_q, obj_collision_info):
+        while len(obj_collision_info) == 1:
+            obj_collision_info = obj_collision_info[0]
+
+        for obj_id in self.object_ids:
+                p.removeBody(obj_id)
+        self.object_ids = []
+        self.cnt_dict = {}
+        if obj_collision_info[0] == p.GEOM_BOX:
+            md = np.ones([60, 60, 70])
+            coord = (np.asarray(np.nonzero(md)).T + 0.5 - np.array([30, 30, 35]))
+            pq = obj_collision_info[1:].cpu().numpy()
+            #pq = obj_collision_info[1:]
+            half_extents = list(pq/2)
+            size_cube=1000
+            shape_idx = p.createCollisionShape(p.GEOM_BOX,
+                                               halfExtents=half_extents,
+                                               physicsClientId=self.physicsClientId)
+            obj_p = np.array(obj_p[0][0])
+            obj_q = np.array(obj_q[0][0])
+        
+            body_id = p.createMultiBody(
+                0.05, shape_idx, -1,
+                obj_p, obj_q,
+                physicsClientId=self.physicsClientId
+            )
+            p.changeDynamics(body_id, -1,
+                             spinningFriction=0.003, lateralFriction=0.25, mass=0.05,
+                             physicsClientId=self.physicsClientId)
+            p.changeVisualShape(body_id, -1,
+                                rgbaColor=np.concatenate([1 * np.random.rand(3), [1]]),
+                                physicsClientId=self.physicsClientId)
+            self.object_ids.append(body_id)
+            self.voxel_coord[body_id] = coord / size_cube
+            self.init_pq[body_id] = (obj_p, obj_q)
+            time.sleep(1)
+        else:
+            raise NotImplementedError
+
+            
+
+
+       
 
     def _get_scene_flow_3d(self, old_po_ors):
         vol_bnds = self.view_bounds
@@ -248,22 +288,13 @@ class SimulationEnv():
                 md = np.ones([60, 60, 70])
                 coord = (np.asarray(np.nonzero(md)).T + 0.5 - np.array([30, 30, 35]))
                 size_cube = 1000
-                collision_id = p.createCollisionShape(p.GEOM_BOX, halfExtents=np.array([30, 30, 35]) / size_cube)
-                #orientation = p.getQuaternionFromEuler(np.random.rand(3) * np.pi)
-                orientation = [0,0,0,1]
                 
+                collision_id = p.createCollisionShape(p.GEOM_BOX, halfExtents=np.array([30, 30, 35]) / size_cube)
                 body_id = p.createMultiBody(
                     0.05, collision_id, -1,
-                    [xy_pos[i, 0], xy_pos[i, 1], 0.035],
-                    orientation
+                    [xy_pos[i, 0], xy_pos[i, 1], 0.2],
+                    p.getQuaternionFromEuler(np.random.rand(3) * np.pi)
                 )
-                # body_id = p.createMultiBody(
-                #                     0.05, collision_id, -1,
-                #                     [0.49656992,0.01250947,0.03498848],
-                #                     [ 8.70631421e-06,-2.79949492e-05,2.31047934e-02,9.99733048e-01]   
-                #                 )
-            
-
                 p.changeDynamics(body_id, -1, spinningFriction=0.003, lateralFriction=0.25, mass=0.05)
                 p.changeVisualShape(body_id, -1, rgbaColor=np.concatenate([1 * np.random.rand(3), [1]]))
                 self.object_ids.append(body_id)
@@ -376,11 +407,10 @@ class SimulationEnv():
                 time.sleep(0.2)
         for obj_id in self.object_ids:
             self.cnt_dict[obj_id] = 0
-            init_p = p.getBasePositionAndOrientation(obj_id)[0]
+            self.init_pq[obj_id] = self.get_object_position_and_orientation(obj_id)
+            init_p = self.init_pq[obj_id][0]
             self.init_position[obj_id] = np.asarray(init_p[:2])
             self.last_direction[obj_id] = None
-            self.put_pq = np.asarray([xy_pos[i, 0], xy_pos[i, 1], 0.035]+[0,0,0,1])
-            
 
     # for heightmap
     def coord2pixel(self, x_coord, y_coord):
@@ -392,46 +422,6 @@ class SimulationEnv():
         x_coord = x_pixel * self.heightmap_pixel_size + self.view_bounds[0, 0]
         y_coord = y_pixel * self.heightmap_pixel_size + self.view_bounds[1, 0]
         return x_coord, y_coord
-
-    def create_object_by_pose_collision(self, obj_p, obj_q, obj_collision_info):
-        while len(obj_collision_info) == 1:
-            obj_collision_info = obj_collision_info[0]
-
-        for obj_id in self.object_ids:
-            p.removeBody(obj_id)
-        self.object_ids = []
-        self.cnt_dict = {}
-
-        if obj_collision_info[0] == p.GEOM_BOX:
-            md = np.ones([60, 60, 70])
-            coord = (np.asarray(np.nonzero(md)).T + 0.5 - np.array([30, 30, 35]))
-            pq = obj_collision_info[1:].cpu().numpy()
-            half_extents = [extent / 2 for extent in pq]
-            size_cube=1000
-            
-            shape_idx = p.createCollisionShape(p.GEOM_BOX,
-                                               halfExtents=half_extents,
-                                               physicsClientId=self.physicsClientId)
-    
-            body_id = p.createMultiBody(
-                0.05, shape_idx, -1,
-                obj_p, obj_q,
-                physicsClientId=self.physicsClientId
-            )
-            
-            p.changeDynamics(body_id, -1,
-                             spinningFriction=0.003, lateralFriction=1, mass=0.05,
-                             physicsClientId=self.physicsClientId)
-            p.changeVisualShape(body_id, -1,
-                                rgbaColor=np.concatenate([1 * np.random.rand(3), [1]]),
-                                physicsClientId=self.physicsClientId)
-            self.object_ids.append(body_id)
-            self.voxel_coord[body_id] = coord / size_cube
-            time.sleep(1)
-          
-
-        else:
-            raise NotImplementedError
 
     def policy_generation(self):
         def softmax(input):
@@ -454,7 +444,7 @@ class SimulationEnv():
         obj_id = np.random.choice(self.object_ids, p=softmax(np.array(value)))
 
         # get position
-        position = p.getBasePositionAndOrientation(obj_id,physicsClientId=self.physicsClientId)[0]
+        position = p.getBasePositionAndOrientation(obj_id)[0]
         position = np.asarray([position[0], position[1]])
 
         # choose direction
@@ -521,18 +511,19 @@ class SimulationEnv():
         return None
 
 
-    def poke(self):
+    def poke(self,policy):
         # log the current position & quat
         old_po_ors = [p.getBasePositionAndOrientation(object_id) for object_id in self.object_ids]
         output = self.get_scene_info()
-        # generate action
-        policy = None
-        while policy is None:
-            policy = self.policy_generation()
 
-        x_pixel, y_pixel, x_coord, y_coord, z_coord, direction = policy
+        # generate action
+        assert policy != None
+        policy = policy[0].cpu().numpy()
+ 
+        x_coord, y_coord, z_coord, direction = policy[0],policy[1],policy[2],policy[3]
         #TODO:
         #kewen: record the policy in the dataset
+        
         output['policy'] = np.asarray([x_coord, y_coord, z_coord, direction])
         # take action
         self.sim.primitive_push(
@@ -542,14 +533,14 @@ class SimulationEnv():
             distance=0.15
         )
         self.sim.robot_go_home()
-        action = {'0': direction, '1': y_pixel, '2': x_pixel}
+        #action = {'0': direction, '1': y_pixel, '2': x_pixel}
 
         mask_3d, scene_flow_3d = self._get_scene_flow_3d(old_po_ors)
         mask_2d, scene_flow_2d = self._get_scene_flow_2d(old_po_ors)
         #TODO:
         #kewen: get the positions and orientations
         positions, orientations = self._get_pos_ori()
-        output['action'] = action
+        #output['action'] = action
         output['mask_3d'] = mask_3d
         output['scene_flow_3d'] = scene_flow_3d
         output['mask_2d'] = mask_2d
@@ -560,19 +551,18 @@ class SimulationEnv():
 
 
     def get_scene_info(self, mask_info=False):
+
         self._get_image_and_heightmap()
 
         positions, orientations = [], []
-        put_positions, put_orientations = [], []
         obj_collision_info = []
         for i, obj_id in enumerate(self.object_ids):
             info = p.getBasePositionAndOrientation(obj_id,self.physicsClientId)
             obj_collision = self.get_object_collision_data(obj_id)[0]
             positions.append(info[0])
             orientations.append(info[1])
-            put_positions.append(self.put_pq[:3])
-            put_orientations.append(self.put_pq[3:])
             obj_collision_info.append([obj_collision[2]]+list(obj_collision[3]))
+
 
         scene_info = {
             'color_heightmap': self.current_color_heightmap,
@@ -583,8 +573,6 @@ class SimulationEnv():
             'depth_image_small': self.current_depth_image1,
             'positions': np.array(positions),
             'orientations': np.array(orientations),
-            'put_positions': np.array(put_positions),
-            'put_orientations': np.array(put_orientations),
             'obj_collision_info': np.array(obj_collision_info)
         }
         if mask_info:
@@ -620,14 +608,14 @@ class SimulationEnv():
             self._random_drop(object_num, object_type)
             time.sleep(1)
             p.removeBody(self.fence_id)
-            # old_ps = np.array([p.getBasePositionAndOrientation(object_id)[0] for object_id in self.object_ids])
-            # for _ in range(10):
-            #     time.sleep(1)
-            #     new_ps = np.array([p.getBasePositionAndOrientation(object_id)[0] for object_id in self.object_ids])
-            #     if np.sum((new_ps - old_ps) ** 2) < 1e-6:
-            #         break
-            #     old_ps = new_ps
-            # self._get_image_and_heightmap()
+            old_ps = np.array([p.getBasePositionAndOrientation(object_id)[0] for object_id in self.object_ids])
+            for _ in range(10):
+                time.sleep(1)
+                new_ps = np.array([p.getBasePositionAndOrientation(object_id)[0] for object_id in self.object_ids])
+                if np.sum((new_ps - old_ps) ** 2) < 1e-6:
+                    break
+                old_ps = new_ps
+            self._get_image_and_heightmap()
 
             # check occlusion
             #TODO: no need to check occlusion
@@ -635,32 +623,21 @@ class SimulationEnv():
             # if self.check_occlusion():
             #     return
 
+    def get_object_position_and_orientation(self, object_id):
+        return p.getBasePositionAndOrientation(object_id, physicsClientId=self.physicsClientId)
+
+    def get_object_collision_data(self, object_id):
+        return p.getCollisionShapeData(object_id, -1, physicsClientId=self.physicsClientId)
+
 
 if __name__ == '__main__':
     env = SimulationEnv(gui_enabled=False)
-    obj_p = [0.5,0,0.035]
-    obj_q = [0,0,0,1]
-    obj_collision_info = [3,0.06,0.06,0.07]
-    #env.create_object_by_pose_collision(obj_p, obj_q, obj_collision_info)
-    env.reset(1,'cube')
-    #env.poke()
+    env.reset(1, 'cube')
 
     # if you just want to get the information of the scene, use env.get_scene_info
-    output = env.get_scene_info()
-    print(output['positions'])
-    print(output['orientations'])
-
-    # obj_position = output['positions']
-    # obj_orientation = output['orientations']
-    # obj_collision_info = output['obj_collision_info']
-
-    # test_sim = test_sim(gui_enabled=False)
-    # test_sim.create_object_by_pose_collision(obj_position,
-    #                 obj_orientation, obj_collision_info)
-    # test_output = test_sim.get_scene_info()
-    # print('pos')
-    # print(test_output['positions'])
-    # print(test_output['orientations'])
+    output = env.get_scene_info(mask_info=True)
+    print(output.keys())
+    
     # if use the pushing. env.poke() will also give you everything, together with scene flow
-    # output = env.poke()
-    # print(output.keys())
+    output = env.poke()
+    print(output.keys())

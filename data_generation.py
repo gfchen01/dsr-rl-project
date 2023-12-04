@@ -10,12 +10,12 @@ from fusion import TSDFVolume
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument('--data_path', type=str, help='path to data')
-parser.add_argument('--train_num', type=int, help='number of training sequences')
-parser.add_argument('--test_num', type=int, help='number of testing sequences')
-parser.add_argument('--object_type', type=str, default='ycb', choices=['cube', 'shapenet', 'ycb'])
+parser.add_argument('--data_path', type=str, default='data/single_obj_data', help='path to data')
+parser.add_argument('--train_num', type=int, default=0, help='number of training sequences')
+parser.add_argument('--test_num', type=int, default=1, help='number of testing sequences')
+parser.add_argument('--object_type', type=str, default='cube', choices=['cube', 'shapenet', 'ycb'])
 parser.add_argument('--max_path_length', type=int, default=10, help='maximum length for each sequence')
-parser.add_argument('--object_num', type=int, default=4, help='number of objects')
+parser.add_argument('--object_num', type=int, default=1, help='number of objects')
 
 def main():
 
@@ -33,10 +33,17 @@ def main():
 
     for rollout in tqdm(range(args.train_num + args.test_num)):
         env.reset(args.object_num, args.object_type)
-        for step_num in range(args.max_path_length):
+        output = env.get_scene_info()
+    
+    #env.poke()
+
+    # if you just want to get the information of the scene, use env.get_scene_info
+        for step_num in tqdm(range(args.max_path_length)):
             f = h5py.File(osp.join(args.data_path, '%d_%d.hdf5' % (rollout, step_num)), 'w')
 
             output = env.poke()
+            print(output['positions'])
+            print(output['orientations'])
             for key, val in output.items():
                 if key == 'action':
                     action = val

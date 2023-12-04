@@ -267,6 +267,7 @@ class TSDFVolume:
                 self._vol_origin, self.vox_coords, self._voxel_size)
             cam_pts = rigid_transform(cam_pts, np.linalg.inv(cam_pose))
             pix_z = cam_pts[:, 2]
+
             pix = self.cam2pix(cam_pts, cam_intr)
             pix_x, pix_y = pix[:, 0], pix[:, 1]
 

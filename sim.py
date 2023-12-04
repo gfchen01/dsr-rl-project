@@ -10,7 +10,7 @@ import utils
 
 
 class PybulletSim:
-    def __init__(self, gui_enabled, heightmap_pixel_size=0.004, tool='stick'):
+    def __init__(self, gui_enabled, heightmap_pixel_size=0.004, tool='stick', is_world=True):
 
         self._workspace_bounds = np.array([[0.244, 0.756],
                                            [-0.256, 0.256],
@@ -24,19 +24,21 @@ class PybulletSim:
         else:
             self._physics_client = p.connect(p.DIRECT)  # non-graphical version
         p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, -9.8)
+        p.setGravity(0, 0, -9.8, physicsClientId=self._physics_client)
+
+        # Add ground plane & table
+        self._plane_id = p.loadURDF("plane.urdf", physicsClientId=self._physics_client)
+        # self._table_id = p.loadURDF('assets/table/table.urdf', [0.5, 0, 0], useFixedBase=True)
+
+        # if is_world:
         step_sim_thread = threading.Thread(target=self.step_simulation)
         step_sim_thread.daemon = True
         step_sim_thread.start()
 
-        # Add ground plane & table
-        self._plane_id = p.loadURDF("plane.urdf")
-        # self._table_id = p.loadURDF('assets/table/table.urdf', [0.5, 0, 0], useFixedBase=True)
-
         # Add UR5 robot
-        self._robot_body_id = p.loadURDF("assets/ur5/ur5.urdf", [0, 0, 0], p.getQuaternionFromEuler([0, 0, 0]))
+        self._robot_body_id = p.loadURDF("assets/ur5/ur5.urdf", [0, 0, 0], p.getQuaternionFromEuler([0, 0, 0]), physicsClientId=self._physics_client)
         # Get revolute joint indices of robot (skip fixed joints)
-        robot_joint_info = [p.getJointInfo(self._robot_body_id, i) for i in range(p.getNumJoints(self._robot_body_id))]
+        robot_joint_info = [p.getJointInfo(self._robot_body_id, i, physicsClientId=self._physics_client) for i in range(p.getNumJoints(self._robot_body_id, physicsClientId=self._physics_client))]
         self._robot_joint_indices = [x[0] for x in robot_joint_info if x[2] == p.JOINT_REVOLUTE]
         self._joint_epsilon = 0.01  # joint position threshold in radians for blocking calls (i.e. move until joint difference < epsilon)
 
@@ -47,9 +49,9 @@ class PybulletSim:
 
         self.tool=tool
         # Attach a sticker to UR5 robot
-        self._gripper_body_id = p.loadURDF("assets/stick/stick.urdf")
+        self._gripper_body_id = p.loadURDF("assets/stick/stick.urdf", physicsClientId=self._physics_client)
         p.resetBasePositionAndOrientation(self._gripper_body_id, [0.5, 0.1, 0.2],
-                                        p.getQuaternionFromEuler([np.pi, 0, 0]))
+                                        p.getQuaternionFromEuler([np.pi, 0, 0]), physicsClientId=self._physics_client)
         self._robot_tool_joint_idx = 9
         self._robot_tool_tip_joint_idx = 10
         self._robot_tool_offset = [0, 0, -0.0725]
@@ -57,7 +59,8 @@ class PybulletSim:
         p.createConstraint(self._robot_body_id, self._robot_tool_joint_idx, self._gripper_body_id, 0,
                            jointType=p.JOINT_FIXED, jointAxis=[0, 0, 0], parentFramePosition=[0, 0, 0],
                            childFramePosition=self._robot_tool_offset,
-                           childFrameOrientation=p.getQuaternionFromEuler([0, 0, np.pi / 2]))
+                           childFrameOrientation=p.getQuaternionFromEuler([0, 0, np.pi / 2]),
+                           physicsClientId=self._physics_client)
         self._tool_tip_to_ee_joint = [0, 0, 0.17]
         # Define Denavit-Hartenberg parameters for UR5
         self._ur5_kinematics_d = np.array([0.089159, 0., 0., 0.10915, 0.09465, 0.0823])
@@ -70,7 +73,8 @@ class PybulletSim:
                 lateralFriction=1.0,
                 spinningFriction=1.0,
                 rollingFriction=0.0001,
-                frictionAnchor=True
+                frictionAnchor=True,
+                physicsClientId=self._physics_client
             )
 
         # Add RGB-D camera (mimic RealSense D415)
@@ -102,7 +106,8 @@ class PybulletSim:
     def _get_camera_param(self, camera_position, camera_image_size):
         camera_lookat = [0.5, 0, 0]
         camera_up_direction = [0, camera_position[2], -camera_position[1]]
-        camera_view_matrix = p.computeViewMatrix(camera_position, camera_lookat, camera_up_direction)
+        camera_view_matrix = p.computeViewMatrix(camera_position, camera_lookat, camera_up_direction,
+                                                 physicsClientId=self._physics_client)
         camera_pose = np.linalg.inv(np.array(camera_view_matrix).reshape(4, 4).T)
         camera_pose[:, 1:3] = -camera_pose[:, 1:3]
         camera_z_near = 0.01
@@ -114,7 +119,8 @@ class PybulletSim:
             fov=camera_fov_h,
             aspect=float(camera_image_size[1]) / float(camera_image_size[0]),
             nearVal=camera_z_near,
-            farVal=camera_z_far
+            farVal=camera_z_far,
+            physicsClientId=self._physics_client
         )  # notes: 1) FOV is vertical FOV 2) aspect must be float
         camera_intrinsics = np.array(
             [[camera_focal_length, 0, float(camera_image_size[1]) / 2],
@@ -134,8 +140,8 @@ class PybulletSim:
     # Step through simulation time
     def step_simulation(self):
         while True:
-            p.stepSimulation()
-            time.sleep(0.0001)
+            p.stepSimulation(self._physics_client)
+            # time.sleep(0.0001)
 
     # Get RGB-D heightmap from RGB-D image
     def get_heightmap(self, color_image, depth_image, cam_param):
@@ -154,7 +160,7 @@ class PybulletSim:
         camera_data = p.getCameraImage(cam_param['camera_image_size'][1], cam_param['camera_image_size'][0],
                                        cam_param['camera_view_matrix'], cam_param['camera_projection_matrix'],
                                        shadow=1, flags=p.ER_SEGMENTATION_MASK_OBJECT_AND_LINKINDEX,
-                                       renderer=p.ER_BULLET_HARDWARE_OPENGL)
+                                       renderer=p.ER_BULLET_HARDWARE_OPENGL, physicsClientId=self._physics_client)
 
         color_image = np.asarray(camera_data[2]).reshape(
             [cam_param['camera_image_size'][0], cam_param['camera_image_size'][1], 4])[:, :, :3]  # remove alpha channel
@@ -173,14 +179,17 @@ class PybulletSim:
         target_joint_state = np.array(
             p.calculateInverseKinematics(self._robot_body_id, self._robot_tool_tip_joint_idx, position, orientation,
                                          maxNumIterations=10000,
-                                         residualThreshold=.0001))
+                                         residualThreshold=.0001,
+                                         physicsClientId=self._physics_client)
+        )
         target_joint_state[5] = (
                 (target_joint_state[5] + np.pi) % (2 * np.pi) - np.pi)  # keep EE joint angle between -180/+180
 
         # Move joints
         p.setJointMotorControlArray(self._robot_body_id, self._robot_joint_indices, p.POSITION_CONTROL,
                                     target_joint_state,
-                                    positionGains=speed * np.ones(len(self._robot_joint_indices)))
+                                    positionGains=speed * np.ones(len(self._robot_joint_indices)),
+                                    physicsClientId=self._physics_client)
 
         # Block call until joints move to target configuration
         if blocking:
@@ -191,9 +200,10 @@ class PybulletSim:
                 if time.time() - timeout_t0 > 5:
                     p.setJointMotorControlArray(self._robot_body_id, self._robot_joint_indices, p.POSITION_CONTROL,
                                                 self._robot_home_joint_config,
-                                                positionGains=np.ones(len(self._robot_joint_indices)))
+                                                positionGains=np.ones(len(self._robot_joint_indices)),
+                                                physicsClientId=self._physics_client)
                     break
-                actual_joint_state = [p.getJointState(self._robot_body_id, x)[0] for x in self._robot_joint_indices]
+                actual_joint_state = [p.getJointState(self._robot_body_id, x, physicsClientId=self._physics_client)[0] for x in self._robot_joint_indices]
                 time.sleep(0.001)
 
     # Move robot arm to specified joint configuration
@@ -202,7 +212,8 @@ class PybulletSim:
         # Move joints
         p.setJointMotorControlArray(self._robot_body_id, self._robot_joint_indices,
                                     p.POSITION_CONTROL, target_joint_state,
-                                    positionGains=speed * np.ones(len(self._robot_joint_indices)))
+                                    positionGains=speed * np.ones(len(self._robot_joint_indices)),
+                                    physicsClientId=self._physics_client)
 
         # Block call until joints move to target configuration
         if blocking:
@@ -213,9 +224,10 @@ class PybulletSim:
                 if time.time() - timeout_t0 > 5:
                     p.setJointMotorControlArray(self._robot_body_id, self._robot_joint_indices, p.POSITION_CONTROL,
                                                 self._robot_home_joint_config,
-                                                positionGains=np.ones(len(self._robot_joint_indices)))
+                                                positionGains=np.ones(len(self._robot_joint_indices)),
+                                                physicsClientId=self._physics_client)
                     break
-                actual_joint_state = [p.getJointState(self._robot_body_id, i)[0] for i in self._robot_joint_indices]
+                actual_joint_state = [p.getJointState(self._robot_body_id, i, physicsClientId=self._physics_client)[0] for i in self._robot_joint_indices]
                 time.sleep(0.001)
 
 
@@ -237,3 +249,6 @@ class PybulletSim:
 
         position_end[2]=0.15
         self.move_tool(position_end, orientation=[-1.0, 1.0, 0.0, 0.0], blocking=True, speed=0.005)
+
+    def get_physics_client_id(self):
+        return self._physics_client
