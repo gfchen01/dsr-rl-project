@@ -12,9 +12,9 @@ parser = argparse.ArgumentParser()
 
 parser.add_argument('--data_path', type=str, default='data/single_obj_data', help='path to data')
 parser.add_argument('--train_num', type=int, default=0, help='number of training sequences')
-parser.add_argument('--test_num', type=int, default=1, help='number of testing sequences')
+parser.add_argument('--test_num', type=int, default=3, help='number of testing sequences')
 parser.add_argument('--object_type', type=str, default='cube', choices=['cube', 'shapenet', 'ycb'])
-parser.add_argument('--max_path_length', type=int, default=10, help='maximum length for each sequence')
+parser.add_argument('--max_path_length', type=int, default=5, help='maximum length for each sequence')
 parser.add_argument('--object_num', type=int, default=1, help='number of objects')
 
 def main():
@@ -25,7 +25,7 @@ def main():
         print('[{0}] = {1}'.format(key, getattr(args, key)))
     mkdir(args.data_path, clean=False)
 
-    env = SimulationEnv(gui_enabled=False)
+    env = SimulationEnv(gui_enabled=True)
     camera_pose = env.sim.camera_params[0]['camera_pose']
     camera_intr = env.sim.camera_params[0]['camera_intr']
     camera_pose_small = env.sim.camera_params[1]['camera_pose']
@@ -42,8 +42,6 @@ def main():
             f = h5py.File(osp.join(args.data_path, '%d_%d.hdf5' % (rollout, step_num)), 'w')
 
             output = env.poke()
-            print(output['positions'])
-            print(output['orientations'])
             for key, val in output.items():
                 if key == 'action':
                     action = val

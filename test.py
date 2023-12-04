@@ -6,7 +6,7 @@ import os.path as osp
 from data import Data
 from torch.utils.data import DataLoader
 import pybullet as p
-#from model import ModelDSR
+from model import ModelDSR
 import itertools
 from test_env import SimulationEnv as test_sim
 import pdb
@@ -22,7 +22,7 @@ parser.add_argument("--test_model", type=str, default="test_sim", choices=["test
 
 parser.add_argument("--gpu", type=int, default=0, help="gpu id (single gpu)")
 parser.add_argument("--object_num", type=int, default=1, help="number of objects")
-parser.add_argument("--seq_len", type=int, default=10, help="sequence length")
+parser.add_argument("--seq_len", type=int, default=5, help="sequence length")
 parser.add_argument("--batch", type=int, default=1, help="batch size")
 parser.add_argument("--workers", type=int, default=2, help="number of workers in data loader")
 
@@ -33,7 +33,7 @@ parser.add_argument("--transform_type", type=str, default="se3euler", choices=["
 
 def main():
     args = parser.parse_args()
-    #torch.cuda.set_device(args.gpu)
+    torch.cuda.set_device(args.gpu)
 
     data, loaders = {}, {}
     for split in ["test"]:
@@ -48,7 +48,7 @@ def main():
         )
         # print(args.resume)
         # torch.load(args.resume)
-        # print(args.gpu)
+        print(args.gpu)
         checkpoint = torch.load(args.resume, map_location=torch.device(f"cuda:{args.gpu}"))
         model.load_state_dict(checkpoint["state_dict"])
         print("==> resume: " + args.resume)
@@ -67,7 +67,7 @@ def main():
                 evaluation_mask_unordered(args, model, loaders["test"])
     
     if args.test_model == 'test_sim':
-        model = test_sim(gui_enabled=False)
+        model = test_sim(gui_enabled=True)
         evaluation_test_sim(args, model, loaders["test"])
 
     else:
@@ -81,14 +81,14 @@ def evaluation_test_sim(args, model, loader):
         batch_size = batch["0-action"].size(0)
         assert batch_size == 1
         data_num += batch_size
-        for obj_id in model.object_ids:
-            p.removeBody(obj_id)
+
         for step_id in range(args.seq_len):
             obj_p = batch["%d-put_positions" % step_id]
             obj_q = batch["%d-put_orientations" % step_id]
             obj_collision_info = batch["%d-obj_collision_info" % step_id]
             policy = batch["%d-policy" % step_id]
-            model.create_object_by_pose_collision(obj_p, obj_q, obj_collision_info)
+            if step_id == 0:
+                model.create_object_by_pose_collision(obj_p, obj_q, obj_collision_info)
             output = model.poke(policy)
 
           

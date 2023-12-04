@@ -68,6 +68,8 @@ class SimulationEnv():
         while len(obj_collision_info) == 1:
             obj_collision_info = obj_collision_info[0]
 
+        for obj_id in self.object_ids:
+            p.removeBody(obj_id)
         self.object_ids = []
         self.cnt_dict = {}
         if obj_collision_info[0] == p.GEOM_BOX:
