@@ -5,6 +5,7 @@ from tqdm import tqdm
 import os.path as osp
 from data import Data
 from torch.utils.data import DataLoader
+import pybullet as p
 #from model import ModelDSR
 import itertools
 from test_env import SimulationEnv as test_sim
@@ -80,6 +81,8 @@ def evaluation_test_sim(args, model, loader):
         batch_size = batch["0-action"].size(0)
         assert batch_size == 1
         data_num += batch_size
+        for obj_id in model.object_ids:
+            p.removeBody(obj_id)
         for step_id in range(args.seq_len):
             obj_p = batch["%d-put_positions" % step_id]
             obj_q = batch["%d-put_orientations" % step_id]
@@ -88,8 +91,7 @@ def evaluation_test_sim(args, model, loader):
             model.create_object_by_pose_collision(obj_p, obj_q, obj_collision_info)
             output = model.poke(policy)
 
-            print(batch["%d-positions" % step_id])
-            print(batch["%d-orientations" % step_id])
+          
 
 
             target = batch["%d-scene_flow_3d" % step_id]
